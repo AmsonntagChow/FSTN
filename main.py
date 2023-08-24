@@ -1,22 +1,27 @@
 
 import argparse
+from sklearn.preprocessing import MinMaxScaler
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
 from data.data_loader import Dataset_ECG
+from data.data_loader import Dataset_Fin
 from model.model import FSTN
 import time
 import os
 import numpy as np
+import pandas as pd
 from utils.utils import save_model, load_model, evaluate
 
 
 parser = argparse.ArgumentParser(description='fourier spatial-tmporal network for multivariate time series forecasting')
-parser.add_argument('--data', type=str, default='ECG', help='data set')
+parser.add_argument('--data', type=str, default='Fin', help='data set')
 parser.add_argument('--feature_size', type=int, default='140', help='feature size')
 parser.add_argument('--number_frequency', type=int, default='1', help='number of frequency')
-parser.add_argument('--seq_length', type=int, default=12, help='input length')
-parser.add_argument('--pre_length', type=int, default=12, help='predict length')
+parser.add_argument('--seq_length', type=int, default=96, help='input length')
+parser.add_argument('--pre_length', type=int, default=96, help='predict length')
+# parser.add_argument('--seq_length', type=int, default=100, help='input length')
+# parser.add_argument('--pre_length', type=int, default=100, help='predict length')
 parser.add_argument('--embed_size', type=int, default=128, help='hidden dimensions')
 parser.add_argument('--hidden_size', type=int, default=256, help='hidden dimensions')
 parser.add_argument('--train_epochs', type=int, default=100, help='train epochs')
@@ -26,7 +31,8 @@ parser.add_argument('--exponential_decay_step', type=int, default=5)
 parser.add_argument('--validate_freq', type=int, default=1)
 parser.add_argument('--early_stop', type=bool, default=False)
 parser.add_argument('--decay_rate', type=float, default=0.5)
-parser.add_argument('--train_ratio', type=float, default=0.7)
+# parser.add_argument('--train_ratio', type=float, default=0.7)
+parser.add_argument('--train_ratio', type=float, default=0.5)
 parser.add_argument('--val_ratio', type=float, default=0.2)
 parser.add_argument('--device', type=str, default='cuda:0', help='device')
 
@@ -44,6 +50,7 @@ if not os.path.exists(result_test_file):
 # data set
 data_parser = {
     'ECG':{'root_path':'data/ECG_data.csv', 'type':'1'},
+    'Fin':{'root_path':'data/AAPL_candles.csv', 'type':'1'},
     'COVID':{'root_path':'data/covid.csv', 'type':'1'},
 }
 
@@ -53,9 +60,12 @@ if args.data in data_parser.keys():
 
 # train val test
 # covid ratio: 6:2:2
-train_set = Dataset_ECG(root_path=data_info['root_path'], flag='train', seq_len=args.seq_length, pre_len=args.pre_length, type=data_info['type'], train_ratio=args.train_ratio, val_ratio=args.val_ratio)
-test_set = Dataset_ECG(root_path=data_info['root_path'], flag='test', seq_len=args.seq_length, pre_len=args.pre_length, type=data_info['type'], train_ratio=args.train_ratio, val_ratio=args.val_ratio)
-val_set = Dataset_ECG(root_path=data_info['root_path'], flag='val', seq_len=args.seq_length, pre_len=args.pre_length, type=data_info['type'], train_ratio=args.train_ratio, val_ratio=args.val_ratio)
+# train_set = Dataset_ECG(root_path=data_info['root_path'], flag='train', seq_len=args.seq_length, pre_len=args.pre_length, type=data_info['type'], train_ratio=args.train_ratio, val_ratio=args.val_ratio)
+# test_set = Dataset_ECG(root_path=data_info['root_path'], flag='test', seq_len=args.seq_length, pre_len=args.pre_length, type=data_info['type'], train_ratio=args.train_ratio, val_ratio=args.val_ratio)
+# val_set = Dataset_ECG(root_path=data_info['root_path'], flag='val', seq_len=args.seq_length, pre_len=args.pre_length, type=data_info['type'], train_ratio=args.train_ratio, val_ratio=args.val_ratio)
+train_set = Dataset_Fin(root_path=data_info['root_path'], flag='train', seq_len=args.seq_length, pre_len=args.pre_length, type=data_info['type'], train_ratio=args.train_ratio, val_ratio=args.val_ratio)
+test_set = Dataset_Fin(root_path=data_info['root_path'], flag='test', seq_len=args.seq_length, pre_len=args.pre_length, type=data_info['type'], train_ratio=args.train_ratio, val_ratio=args.val_ratio)
+val_set = Dataset_Fin(root_path=data_info['root_path'], flag='val', seq_len=args.seq_length, pre_len=args.pre_length, type=data_info['type'], train_ratio=args.train_ratio, val_ratio=args.val_ratio)
 
 train_dataloader = DataLoader(
     train_set,
@@ -117,12 +127,12 @@ def validate(model, vali_loader):
     preds = np.concatenate(preds, axis=0)
     trues = np.concatenate(trues, axis=0)
     score = evaluate(trues, preds)
-    print(f'RAW : MAPE {score[0]:7.9%}; MAE {score[1]:7.9f}; RMSE {score[2]:7.9f}.')
+    print(f'RAW : MAPE {score[0]:7.9%}; MAE {score[1]:7.9f}; RMSE {score[2]:7.9f};MSE {score[3]:7.9f};ic {score[4]:7.9f};rank_ic {score[5]:7.9f}.train.')
     model.train()
     return loss_total/cnt
 
 def test():
-    result_test_file = 'output/ECG/train'
+    result_test_file = 'output/Fin/train'
     model = load_model(result_test_file, 99)
     model.eval()
     preds = []
@@ -131,6 +141,7 @@ def test():
         y = y.float().to("cuda:0")
         x = x.float().to("cuda:0")
         forecast = model(x)
+        # print(y.shape)##
         y = y.permute(0, 2, 1).contiguous()
         forecast = forecast.detach().cpu().numpy()  # .squeeze()
         y = y.detach().cpu().numpy()  # .squeeze()
@@ -140,8 +151,17 @@ def test():
     trues = np.array(trues)
     preds = np.concatenate(preds, axis=0)
     trues = np.concatenate(trues, axis=0)
+    # preds_reshaped = preds.reshape(-1, 5)
+    # print(preds_reshaped.shape)
+    # trues_reshaped = trues.reshape(-1, preds.shape[-1])
+    # t = test_dataloader.dataset
+    # t.inverse()
+    # df1 = pd.DataFrame(p)
+    # df2 = pd.DataFrame(t)
+    # df1.to_csv('output/Fin/preds.csv')
+    # df2.to_csv('output/Fin/trues.csv')
     score = evaluate(trues, preds)
-    print(f'RAW : MAPE {score[0]:7.9%}; MAE {score[1]:7.9f}; RMSE {score[2]:7.9f}.')
+    print(f'RAW : MAPE {score[0]:7.9%}; MAE {score[1]:7.9f}; RMSE {score[2]:7.9f};MSE {score[3]:7.9f};ic {score[4]:7.9f};rank_ic {score[5]:7.9f}.test.')
 
 if __name__ == '__main__':
 

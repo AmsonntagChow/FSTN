@@ -1,7 +1,7 @@
 import numpy as np
 import torch
 import os
-
+from scipy import stats
 
 def concat_fun(inputs, axis=-1):
     if len(inputs) == 1:
@@ -154,6 +154,42 @@ def MAE(v, v_, axis=None):
 def MSE(v, v_):
     return np.mean((v_ - v) ** 2)
 
+def eval_ic(v, v_):
+    # Ensure that v and v_ are numpy arrays
+    if isinstance(v, torch.Tensor):
+        v = v.detach().numpy()
+    if isinstance(v_, torch.Tensor):
+        v_ = v_.detach().numpy()
+
+    # Reshape the arrays to 2D if they are 3D
+    if len(v.shape) == 3:
+        v = v.reshape(v.shape[0], -1)
+    if len(v_.shape) == 3:
+        v_ = v_.reshape(v_.shape[0], -1)
+
+    # Calculate the Pearson correlation coefficients
+    ics = []
+    for i in range(v.shape[0]):
+        ics.append(stats.pearsonr(v[i], v_[i])[0])
+    return np.mean(ics)
+
+def eval_rank_ic(v, v_):
+    if isinstance(v, torch.Tensor):
+        v = v.detach().numpy()
+    if isinstance(v_, torch.Tensor):
+        v_ = v_.detach().numpy()
+
+    # Reshape the arrays to 2D if they are 3D
+    if len(v.shape) == 3:
+        v = v.reshape(v.shape[0], -1)
+    if len(v_.shape) == 3:
+        v_ = v_.reshape(v_.shape[0], -1)
+
+    rank_ics = []
+    for i in range(v.shape[0]):
+        rank_ics.append(stats.spearmanr(v[i], v_[i])[0])
+    return np.mean(rank_ics)
+
 
 def evaluate(y, y_hat, by_step=False, by_node=False):
     '''
@@ -164,10 +200,13 @@ def evaluate(y, y_hat, by_step=False, by_node=False):
     :return: array of mape, mae and rmse.
     '''
     if not by_step and not by_node:
-        return MAPE(y, y_hat), MAE(y, y_hat), RMSE(y, y_hat), MSE(y, y_hat), smape(y,y_hat)
+        return MAPE(y, y_hat), MAE(y, y_hat), RMSE(y, y_hat), MSE(y, y_hat), eval_ic(y,y_hat), eval_rank_ic(y,y_hat)
     if by_step and by_node:
-        return MAPE(y, y_hat, axis=0), MAE(y, y_hat, axis=0), RMSE(y, y_hat, axis=0), MSE(y, y_hat)
+        return MAPE(y, y_hat, axis=0), MAE(y, y_hat, axis=0), RMSE(y, y_hat, axis=0), MSE(y, y_hat), eval_ic(y,y_hat), eval_rank_ic(y,y_hat)
     if by_step:
-        return MAPE(y, y_hat, axis=(0, 2)), MAE(y, y_hat, axis=(0, 2)), RMSE(y, y_hat, axis=(0, 2)), MSE(y, y_hat)
+        return MAPE(y, y_hat, axis=(0, 2)), MAE(y, y_hat, axis=(0, 2)), RMSE(y, y_hat, axis=(0, 2)), MSE(y, y_hat), eval_ic(y,y_hat), eval_rank_ic(y,y_hat)
     if by_node:
-        return MAPE(y, y_hat, axis=(0, 1)), MAE(y, y_hat, axis=(0, 1)), RMSE(y, y_hat, axis=(0, 1)), MSE(y, y_hat)
+        return MAPE(y, y_hat, axis=(0, 1)), MAE(y, y_hat, axis=(0, 1)), RMSE(y, y_hat, axis=(0, 1)), MSE(y, y_hat), eval_ic(y,y_hat), eval_rank_ic(y,y_hat)
+    
+
+
